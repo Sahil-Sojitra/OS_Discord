@@ -1,9 +1,11 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { env } from './config/env.js';
 import { logger } from './utils/logger.js';
 import { connectDB, closeDB } from './utils/db.js';
 import { errorHandler } from './middleware/error.js';
+import authRouter from './modules/auth/auth.routes.js';
 
 const app = express();
 
@@ -16,12 +18,16 @@ app.use(
 );
 
 app.use(express.json());
+app.use(cookieParser());
 
 // Simple request logger middleware
 app.use((req, res, next) => {
   logger.info({ method: req.method, url: req.url }, 'Incoming request');
   next();
 });
+
+// Authentication routes
+app.use('/auth', authRouter);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
