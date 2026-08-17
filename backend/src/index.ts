@@ -41,29 +41,9 @@ const startServer = async () => {
   await connectDB();
 
   const server = app.listen(env.PORT, () => {
-    logger.info(`🚀 Server running in ${env.NODE_ENV} mode on port ${env.PORT}`);
+    logger.info(`Server running in ${env.NODE_ENV} mode on port ${env.PORT}`);
   });
 
-  // Handle graceful shutdowns
-  const handleShutdown = async (signal: string) => {
-    logger.info(`Received ${signal}. Starting graceful shutdown...`);
-    
-    server.close(async () => {
-      logger.info('HTTP server stopped.');
-      await closeDB();
-      logger.info('Graceful shutdown completed successfully. Exiting.');
-      process.exit(0);
-    });
-
-    // Force shutdown if cleanup takes too long
-    setTimeout(() => {
-      logger.fatal('Graceful shutdown timed out. Forcefully exiting.');
-      process.exit(1);
-    }, 10000);
-  };
-
-  process.on('SIGTERM', () => handleShutdown('SIGTERM'));
-  process.on('SIGINT', () => handleShutdown('SIGINT'));
 };
 
 startServer().catch((error) => {

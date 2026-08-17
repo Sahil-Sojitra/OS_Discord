@@ -18,7 +18,7 @@ const envSchema = z.object({
 const parseEnv = () => {
   const result = envSchema.safeParse(process.env);
   if (!result.success) {
-    console.error('❌ Environment configuration validation failed:');
+    console.error('Environment configuration validation failed:');
     result.error.errors.forEach((err) => {
       console.error(`   - ${err.path.join('.')}: ${err.message}`);
     });

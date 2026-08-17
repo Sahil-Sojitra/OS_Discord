@@ -13,7 +13,7 @@ const parseEnv = () => {
 
   const result = envSchema.safeParse(envVars);
   if (!result.success) {
-    console.error('❌ Frontend environment configuration validation failed:');
+    console.error('Frontend environment configuration validation failed:');
     result.error.issues.forEach((issue) => {
       console.error(`   - ${issue.path.join('.')}: ${issue.message}`);
     });
