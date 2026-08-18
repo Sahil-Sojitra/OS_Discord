@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/context/auth';
 import { apiFetch } from '@/lib/api';
+import { useSocket } from '@/context/socket';
 
 interface Member {
   id: string;
@@ -23,11 +24,48 @@ export default function RoomDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useAuth();
+  const { socket } = useSocket();
 
   const roomId = params?.roomId as string;
   const [room, setRoom] = useState<RoomDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
+
+  // Socket Connection Join/Leave Effect
+  useEffect(() => {
+    if (!socket || !roomId || !user) return;
+
+    // Join room via socket
+    socket.emit('room:join', { roomId }, (ack: any) => {
+      if (ack && ack.status === 'ok') {
+        console.log('[Socket] Joined room:', roomId);
+        setOnlineUserIds([user.id]);
+      } else {
+        console.error('[Socket] Join failed:', ack?.message);
+      }
+    });
+
+    // Listen for room updates
+    socket.on('user:joined', (data: { userId: string; username: string; roomId: string }) => {
+      if (data.roomId === roomId) {
+        setOnlineUserIds((prev) => [...new Set([...prev, data.userId])]);
+      }
+    });
+
+    socket.on('user:left', (data: { userId: string; username: string; roomId: string }) => {
+      if (data.roomId === roomId) {
+        setOnlineUserIds((prev) => prev.filter((id) => id !== data.userId));
+      }
+    });
+
+    return () => {
+      // Leave room
+      socket.emit('room:leave', { roomId });
+      socket.off('user:joined');
+      socket.off('user:left');
+    };
+  }, [socket, roomId, user]);
 
   useEffect(() => {
     if (!user || !roomId) return;
@@ -109,22 +147,30 @@ export default function RoomDetailPage() {
             Members — {room.members.length}
           </h3>
           <ul className="space-y-2">
-            {room.members.map((member) => (
-              <li
-                key={member.id}
-                className="flex items-center gap-2 text-xs text-slate-350 hover:text-slate-200 transition-colors duration-150"
-              >
-                <div className="w-6 h-6 bg-slate-800 border border-slate-750 rounded-full flex items-center justify-center font-bold text-[10px] text-slate-300 uppercase">
-                  {member.username.slice(0, 2)}
-                </div>
-                <span className="truncate">{member.username}</span>
-                {member.id === room.createdBy && (
-                  <span className="text-[8px] px-1 py-0.5 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded font-semibold uppercase">
-                    Owner
-                  </span>
-                )}
-              </li>
-            ))}
+            {room.members.map((member) => {
+              const isOnline = onlineUserIds.includes(member.id);
+              return (
+                <li
+                  key={member.id}
+                  className="flex items-center gap-2 text-xs text-slate-350 hover:text-slate-200 transition-colors duration-150 relative"
+                >
+                  <div className="relative">
+                    <div className="w-6 h-6 bg-slate-800 border border-slate-750 rounded-full flex items-center justify-center font-bold text-[10px] text-slate-300 uppercase">
+                      {member.username.slice(0, 2)}
+                    </div>
+                    {isOnline && (
+                      <span className="absolute bottom-0 right-0 block h-1.5 w-1.5 rounded-full bg-emerald-500 ring-1 ring-slate-950" />
+                    )}
+                  </div>
+                  <span className="truncate">{member.username}</span>
+                  {member.id === room.createdBy && (
+                    <span className="text-[8px] px-1 py-0.5 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded font-semibold uppercase ml-auto">
+                      Owner
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
 

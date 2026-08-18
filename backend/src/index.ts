@@ -1,4 +1,5 @@
 import express from 'express';
+import { createServer } from 'http';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { env } from './config/env.js';
@@ -7,8 +8,10 @@ import { connectDB, closeDB } from './utils/db.js';
 import { errorHandler } from './middleware/error.js';
 import authRouter from './modules/auth/auth.routes.js';
 import roomRouter from './modules/rooms/room.routes.js';
+import { initSocketServer } from './socket/index.js';
 
 const app = express();
+const server = createServer(app);
 
 // Set up CORS
 app.use(
@@ -50,14 +53,17 @@ const startServer = async () => {
   // Connect to database
   await connectDB();
 
-  const server = app.listen(env.PORT, () => {
+  // Initialize Socket.IO server attached to http server
+  initSocketServer(server);
+
+  server.listen(env.PORT, () => {
     logger.info(`Server running in ${env.NODE_ENV} mode on port ${env.PORT}`);
   });
-
 };
 
 startServer().catch((error) => {
   logger.fatal(error, 'Unhandled error during server startup');
   process.exit(1);
 });
+
 export default app;
