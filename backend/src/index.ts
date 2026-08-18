@@ -6,6 +6,7 @@ import { logger } from './utils/logger.js';
 import { connectDB, closeDB } from './utils/db.js';
 import { errorHandler } from './middleware/error.js';
 import authRouter from './modules/auth/auth.routes.js';
+import roomRouter from './modules/rooms/room.routes.js';
 
 const app = express();
 
@@ -28,6 +29,9 @@ app.use((req, res, next) => {
 
 // Authentication routes
 app.use('/auth', authRouter);
+
+// Rooms routes
+app.use('/rooms', roomRouter);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
