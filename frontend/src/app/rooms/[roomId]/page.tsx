@@ -269,8 +269,11 @@ export default function RoomDetailPage() {
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto">
-          <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Members — {room.members.length}
+          <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex justify-between items-center">
+            <span>Members — {room.members.length}</span>
+            <span className="text-emerald-450 font-normal font-mono px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-[9px] lowercase">
+              {presenceList.length} online
+            </span>
           </h3>
           <ul className="space-y-2">
             {room.members.map((member) => {
