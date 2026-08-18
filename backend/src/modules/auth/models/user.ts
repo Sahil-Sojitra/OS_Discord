@@ -26,6 +26,8 @@ const userSchema = new Schema<IUser>(
     toJSON: {
       transform: (_doc, ret) => {
         const docObj = ret as any;
+        docObj.id = docObj._id.toString();
+        delete docObj._id;
         delete docObj.passwordHash;
         delete docObj.__v;
         return docObj;
