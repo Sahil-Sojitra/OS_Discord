@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/context/auth';
@@ -32,6 +32,14 @@ export default function RoomDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
 
+  // Messaging States
+  const [messages, setMessages] = useState<any[]>([]);
+  const [hasMore, setHasMore] = useState(true);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [paginationLoading, setPaginationLoading] = useState(false);
+  const [inputValue, setInputValue] = useState('');
+  const messageContainerRef = useRef<HTMLDivElement | null>(null);
+
   // Socket Connection Join/Leave Effect
   useEffect(() => {
     if (!socket || !roomId || !user) return;
@@ -59,33 +67,69 @@ export default function RoomDetailPage() {
       }
     });
 
+    // Listen for live new messages from other users
+    socket.on('message:new', (data: { message: any }) => {
+      // Ignore messages sent by ourselves (handled optimistically with acks)
+      if (data.message.senderId.id === user.id) return;
+
+      setMessages((prev) => [...prev, data.message]);
+
+      // Autoscroll to bottom if user is close to the bottom
+      setTimeout(() => {
+        const container = messageContainerRef.current;
+        if (container) {
+          const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 200;
+          if (isNearBottom) {
+            container.scrollTop = container.scrollHeight;
+          }
+        }
+      }, 50);
+    });
+
     return () => {
       // Leave room
       socket.emit('room:leave', { roomId });
       socket.off('user:joined');
       socket.off('user:left');
+      socket.off('message:new');
     };
   }, [socket, roomId, user]);
 
+  // Load history and details
   useEffect(() => {
     if (!user || !roomId) return;
 
-    const fetchRoomDetail = async () => {
+    const loadData = async () => {
       try {
-        const res = await apiFetch(`/rooms/${roomId}`);
-
-        if (res.status === 404) {
-          // Not found or not a member: redirect to join
+        // Fetch room metadata
+        const roomRes = await apiFetch(`/rooms/${roomId}`);
+        if (roomRes.status === 404) {
           router.push(`/rooms/${roomId}/join`);
           return;
         }
-
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error?.message || 'Failed to load room details');
+        const roomData = await roomRes.json();
+        if (!roomRes.ok) {
+          throw new Error(roomData.error?.message || 'Failed to load room details');
         }
+        setRoom(roomData.room);
 
-        setRoom(data.room);
+        // Fetch initial messages history
+        const msgRes = await apiFetch(`/rooms/${roomId}/messages?limit=50`);
+        if (msgRes.ok) {
+          const msgData = await msgRes.json();
+          // Server returns newest first (descending). Reverse to show oldest at the top.
+          const reversed = [...(msgData.messages || [])].reverse();
+          setMessages(reversed);
+          setNextCursor(msgData.nextCursor);
+          setHasMore(msgData.nextCursor !== null);
+
+          // Scroll to the bottom of the feed initially
+          setTimeout(() => {
+            if (messageContainerRef.current) {
+              messageContainerRef.current.scrollTop = messageContainerRef.current.scrollHeight;
+            }
+          }, 50);
+        }
       } catch (err: unknown) {
         setError(
           err instanceof Error ? err.message : 'An error occurred loading the room'
@@ -95,8 +139,91 @@ export default function RoomDetailPage() {
       }
     };
 
-    fetchRoomDetail();
+    loadData();
   }, [roomId, user, router]);
+
+  // Paginated scrolling load handler
+  const handleScroll = async () => {
+    const container = messageContainerRef.current;
+    if (!container || !hasMore || paginationLoading || !nextCursor) return;
+
+    // Trigger load if user scrolls to top (within 50px of topmost boundary)
+    if (container.scrollTop <= 50) {
+      setPaginationLoading(true);
+      const prevScrollHeight = container.scrollHeight;
+
+      try {
+        const res = await apiFetch(`/rooms/${roomId}/messages?before=${nextCursor}&limit=50`);
+        if (res.ok) {
+          const data = await res.json();
+          const reversedNew = [...(data.messages || [])].reverse();
+
+          setMessages((prev) => [...reversedNew, ...prev]);
+          setNextCursor(data.nextCursor);
+          setHasMore(data.nextCursor !== null);
+
+          // Pin the scrolling position so the viewport doesn't jump
+          setTimeout(() => {
+            container.scrollTop = container.scrollHeight - prevScrollHeight;
+          }, 0);
+        }
+      } catch (err) {
+        console.error('Failed to load older messages:', err);
+      } finally {
+        setPaginationLoading(false);
+      }
+    }
+  };
+
+  // Submit and send message handler
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputValue.trim() || !socket || !user || !roomId) return;
+
+    const content = inputValue.trim();
+    setInputValue(''); // Reset field input
+
+    const tempId = crypto.randomUUID();
+    const optimisticMsg = {
+      id: tempId,
+      content,
+      roomId,
+      senderId: {
+        id: user.id,
+        username: user.username,
+      },
+      createdAt: new Date().toISOString(),
+      sending: true, // Optimistic UI marker
+    };
+
+    // Prepend/append to current message set
+    setMessages((prev) => [...prev, optimisticMsg]);
+
+    // Force snap scrolling to bottom on your own send action
+    setTimeout(() => {
+      if (messageContainerRef.current) {
+        messageContainerRef.current.scrollTop = messageContainerRef.current.scrollHeight;
+      }
+    }, 50);
+
+    // Send payload over sockets
+    socket.emit('message:send', { roomId, content, tempId }, (ack: any) => {
+      if (ack && ack.status === 'ok') {
+        // Swap out the optimistic temp message with server confirmed canonical record
+        setMessages((prev) =>
+          prev.map((msg) => (msg.id === ack.tempId ? ack.message : msg))
+        );
+      } else {
+        console.error('[Socket] Message delivery failed:', ack?.message);
+        // Toggle the message state to failed
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === tempId ? { ...msg, sending: false, error: true } : msg
+          )
+        );
+      }
+    });
+  };
 
   if (loading) {
     return (
@@ -188,21 +315,97 @@ export default function RoomDetailPage() {
           <h1 className="font-bold text-slate-200 text-base"># {room.name}</h1>
         </header>
 
-        {/* Message section placeholder */}
-        <div className="flex-1 flex justify-center items-center p-8">
-          <div className="text-center space-y-3 max-w-sm bg-slate-900/20 border border-slate-900/60 rounded-2xl p-6 backdrop-blur-sm">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-550/10 border border-indigo-500/20 flex items-center justify-center mx-auto text-indigo-400 font-bold text-xl select-none">
-              #
+        {/* Messages Feed View */}
+        <div
+          ref={messageContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto px-8 py-6 space-y-4"
+        >
+          {paginationLoading && (
+            <div className="flex justify-center py-2">
+              <div className="w-5 h-5 border-2 border-slate-800 border-t-indigo-500 rounded-full animate-spin" />
             </div>
-            <h3 className="font-bold text-slate-300 text-sm">Welcome to #{room.name}!</h3>
-            <p className="text-slate-500 text-xs leading-normal">
-              This is the start of your password-secured channel.
-            </p>
-            <div className="text-[10px] font-semibold tracking-wider text-indigo-500 bg-indigo-950/10 border border-indigo-900/25 rounded px-2.5 py-1.5 inline-block uppercase font-mono animate-pulse">
-              Messages go here (Phase 5)
+          )}
+
+          {messages.length === 0 ? (
+            <div className="h-full flex flex-col justify-center items-center text-center space-y-3 max-w-sm mx-auto">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-550/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold text-xl select-none">
+                #
+              </div>
+              <h3 className="font-bold text-slate-300 text-sm">Welcome to #{room.name}!</h3>
+              <p className="text-slate-500 text-xs leading-normal">
+                This is the start of your password-secured channel.
+              </p>
             </div>
-          </div>
+          ) : (
+            messages.map((msg) => {
+              const isSelf = msg.senderId.id === user?.id;
+              return (
+                <div
+                  key={msg.id}
+                  className={`flex flex-col max-w-[70%] group ${
+                    isSelf ? 'ml-auto items-end' : 'mr-auto items-start'
+                  }`}
+                >
+                  {/* Sender metadata and timestamp */}
+                  <div className="flex items-center gap-2 mb-1 text-[10px] text-slate-500">
+                    <span className="font-bold text-slate-400">
+                      {isSelf ? 'You' : msg.senderId.username}
+                    </span>
+                    <span>•</span>
+                    <span>
+                      {new Date(msg.createdAt).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+
+                  {/* Content Bubble */}
+                  <div
+                    className={`px-4 py-2.5 rounded-2xl text-xs leading-relaxed break-words whitespace-pre-wrap ${
+                      isSelf
+                        ? 'bg-indigo-650 text-white rounded-tr-none shadow-md shadow-indigo-600/5'
+                        : 'bg-slate-900/60 text-slate-200 border border-slate-850 rounded-tl-none'
+                    } ${msg.sending ? 'opacity-50 animate-pulse' : ''} ${
+                      msg.error ? 'border-rose-500/40 bg-rose-950/20 text-rose-350' : ''
+                    }`}
+                  >
+                    {msg.content}
+                  </div>
+
+                  {/* Failed status notice */}
+                  {msg.error && (
+                    <span className="text-[9px] text-rose-455 font-semibold mt-1">
+                      Failed to send.
+                    </span>
+                  )}
+                </div>
+              );
+            })
+          )}
         </div>
+
+        {/* Message Input Footer */}
+        <footer className="p-6 border-t border-slate-900 bg-slate-950 shrink-0 z-10">
+          <form onSubmit={handleSendMessage} className="relative flex items-center">
+            <input
+              type="text"
+              required
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              placeholder={`Message #${room.name}`}
+              className="w-full bg-slate-900/40 border border-slate-850 rounded-xl pl-4 pr-16 py-3.5 text-xs focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/30 transition-all duration-200"
+            />
+            <button
+              type="submit"
+              disabled={!inputValue.trim()}
+              className="absolute right-2 px-4 py-2 bg-indigo-650 hover:bg-indigo-600 disabled:bg-slate-900 disabled:text-slate-600 text-white text-[10px] font-bold rounded-lg transition-all duration-150"
+            >
+              Send
+            </button>
+          </form>
+        </footer>
       </main>
     </div>
   );

@@ -5,6 +5,7 @@ import { requireAuth } from '../../middleware/auth.middleware.js';
 import { requireRoomMember } from '../../middleware/room.middleware.js';
 import { validate } from '../../middleware/validation.js';
 import { createRoomSchema, joinRoomSchema } from './validators.js';
+import * as messageController from '../messages/message.controller.js';
 
 const router = Router();
 
@@ -26,6 +27,7 @@ router.post('/', requireAuth, roomCreationLimiter, validate(createRoomSchema), r
 router.post('/:roomId/join', requireAuth, validate(joinRoomSchema), roomController.join);
 router.get('/mine', requireAuth, roomController.listMine);
 router.get('/', requireAuth, roomController.listAll);
+router.get('/:roomId/messages', requireAuth, requireRoomMember, messageController.listHistory);
 router.get('/:roomId', requireAuth, requireRoomMember, roomController.getDetail);
 
 export default router;

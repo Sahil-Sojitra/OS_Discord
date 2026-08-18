@@ -7,6 +7,7 @@ import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { User, IUser } from '../modules/auth/models/user.js';
 import { registerRoomHandlers } from './handlers/rooms.js';
+import { registerMessageHandlers } from './handlers/messages.js';
 
 // Extend SocketIO's Socket interface to hold user data in data property
 interface CustomSocket extends Socket {
@@ -88,8 +89,9 @@ export const initSocketServer = (httpServer: HttpServer): Server => {
       'Socket client connected successfully'
     );
 
-    // Register rooms domain event handlers
+    // Register rooms and messages domain event handlers
     registerRoomHandlers(customSocket);
+    registerMessageHandlers(customSocket, io);
 
     socket.on('disconnect', () => {
       logger.info(
