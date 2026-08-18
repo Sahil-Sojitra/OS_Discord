@@ -21,18 +21,8 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
     // Wait until authentication status has hydrated
     if (authLoading) return;
 
-    // Disconnect if user logs out or is unauthenticated
-    if (!user) {
-      if (socket) {
-        socket.disconnect();
-        setSocket(null);
-        setConnected(false);
-      }
-      return;
-    }
-
-    // Prevent duplicate connections if socket is already instantiated
-    if (socket) return;
+    // Connect only if user is logged in
+    if (!user) return;
 
     const socketUrl = env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
     
@@ -63,8 +53,10 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
     return () => {
       newSocket.disconnect();
+      setSocket(null);
+      setConnected(false);
     };
-  }, [user, authLoading, socket]);
+  }, [user, authLoading]);
 
   return (
     <SocketContext.Provider value={{ socket, connected }}>
