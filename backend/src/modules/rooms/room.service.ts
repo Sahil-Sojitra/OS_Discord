@@ -68,6 +68,22 @@ export const getMyRooms = async (userId: string): Promise<any[]> => {
   });
 };
 
+export const getAllRooms = async (userId: string): Promise<any[]> => {
+  // Retrieve all rooms, selecting name, members, and createdAt
+  const rooms = await Room.find(
+    {},
+    { name: 1, members: 1, createdAt: 1 }
+  ).sort({ createdAt: -1 });
+
+  // Map to format response, calculating member count and membership status for the user
+  return rooms.map((room) => {
+    const obj = room.toJSON() as any;
+    obj.isMember = room.members.some((memberId) => memberId.toString() === userId);
+    delete obj.members;
+    return obj;
+  });
+};
+
 export const getRoomById = async (roomId: string): Promise<IRoom> => {
   const room = await Room.findById(roomId)
     .populate('members', 'username')

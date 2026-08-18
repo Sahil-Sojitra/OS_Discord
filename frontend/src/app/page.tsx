@@ -20,6 +20,13 @@ export default function Home() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomsLoading, setRoomsLoading] = useState(false);
 
+  // Explore rooms states
+  const [exploreRooms, setExploreRooms] = useState<(Room & { isMember: boolean })[]>([]);
+  const [exploreLoading, setExploreLoading] = useState(false);
+
+  // Tab State
+  const [activeTab, setActiveTab] = useState<'mine' | 'explore'>('mine');
+
   // Room Creation States
   const [newRoomName, setNewRoomName] = useState('');
   const [newRoomPassword, setNewRoomPassword] = useState('');
@@ -45,8 +52,25 @@ export default function Home() {
     }
   };
 
+  const fetchExploreRooms = async () => {
+    if (!user) return;
+    setExploreLoading(true);
+    try {
+      const res = await apiFetch('/rooms');
+      if (res.ok) {
+        const data = await res.json();
+        setExploreRooms(data.rooms || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch explore rooms:', err);
+    } finally {
+      setExploreLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchRooms();
+    fetchExploreRooms();
   }, [user]);
 
   const handleCreateRoom = async (e: React.FormEvent) => {
@@ -109,47 +133,114 @@ export default function Home() {
           <>
             {/* Rooms List Section (Takes up 2 columns on large devices) */}
             <section className="lg:col-span-2 space-y-6">
-              <h2 className="text-lg font-bold text-slate-200 flex items-center gap-2">
-                My Rooms
-                <span className="text-xs px-2 py-0.5 bg-slate-900 border border-slate-850 rounded-full font-mono text-slate-400 font-normal">
-                  {rooms.length}
-                </span>
-              </h2>
+              {/* Tab Bar */}
+              <div className="flex gap-6 border-b border-slate-900 pb-2 mb-4">
+                <button
+                  onClick={() => setActiveTab('mine')}
+                  className={`pb-2 text-sm font-bold uppercase tracking-wider transition-colors duration-150 relative ${
+                    activeTab === 'mine' ? 'text-indigo-400' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  My Rooms ({rooms.length})
+                  {activeTab === 'mine' && (
+                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full" />
+                  )}
+                </button>
+                <button
+                  onClick={() => setActiveTab('explore')}
+                  className={`pb-2 text-sm font-bold uppercase tracking-wider transition-colors duration-150 relative ${
+                    activeTab === 'explore' ? 'text-indigo-400' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Explore ({exploreRooms.length})
+                  {activeTab === 'explore' && (
+                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full" />
+                  )}
+                </button>
+              </div>
 
-              {roomsLoading ? (
-                <div className="h-48 border border-slate-900 rounded-2xl flex justify-center items-center">
-                  <div className="w-8 h-8 border-2 border-slate-800 border-t-indigo-500 rounded-full animate-spin" />
-                </div>
-              ) : rooms.length === 0 ? (
-                <div className="h-48 border border-dashed border-slate-800 rounded-2xl flex flex-col justify-center items-center p-6 text-center">
-                  <p className="text-slate-400 text-sm mb-2">You aren't in any rooms yet.</p>
-                  <p className="text-slate-600 text-xs">Create a new room or use a room ID to join one.</p>
-                </div>
+              {activeTab === 'mine' ? (
+                /* My Rooms Tab */
+                roomsLoading ? (
+                  <div className="h-48 border border-slate-900 rounded-2xl flex justify-center items-center">
+                    <div className="w-8 h-8 border-2 border-slate-800 border-t-indigo-500 rounded-full animate-spin" />
+                  </div>
+                ) : rooms.length === 0 ? (
+                  <div className="h-48 border border-dashed border-slate-800 rounded-2xl flex flex-col justify-center items-center p-6 text-center">
+                    <p className="text-slate-400 text-sm mb-2">You aren't in any rooms yet.</p>
+                    <p className="text-slate-600 text-xs">Create a new room or use a room ID to join one.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {rooms.map((room) => (
+                      <Link
+                        key={room.id}
+                        href={`/rooms/${room.id}`}
+                        className="group bg-slate-900/40 hover:bg-slate-900/70 border border-slate-850 hover:border-indigo-500/30 rounded-xl p-5 transition-all duration-200 hover:-translate-y-0.5 shadow-md flex flex-col justify-between h-36"
+                      >
+                        <div>
+                          <h3 className="font-bold text-slate-200 group-hover:text-indigo-400 transition-colors duration-150 truncate">
+                            # {room.name}
+                          </h3>
+                          <p className="text-slate-500 text-[10px] uppercase font-bold tracking-wider mt-1 font-mono">
+                            ID: {room.id}
+                          </p>
+                        </div>
+                        <div className="flex justify-between items-center text-xs text-slate-400">
+                          <span>{room.memberCount} members</span>
+                          <span className="text-[10px] text-slate-550">
+                            {new Date(room.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {rooms.map((room) => (
-                    <Link
-                      key={room.id}
-                      href={`/rooms/${room.id}`}
-                      className="group bg-slate-900/40 hover:bg-slate-900/70 border border-slate-850 hover:border-indigo-500/30 rounded-xl p-5 transition-all duration-200 hover:-translate-y-0.5 shadow-md flex flex-col justify-between h-36"
-                    >
-                      <div>
-                        <h3 className="font-bold text-slate-200 group-hover:text-indigo-400 transition-colors duration-150 truncate">
-                          # {room.name}
-                        </h3>
-                        <p className="text-slate-500 text-[10px] uppercase font-bold tracking-wider mt-1 font-mono">
-                          ID: {room.id}
-                        </p>
-                      </div>
-                      <div className="flex justify-between items-center text-xs text-slate-400">
-                        <span>{room.memberCount} members</span>
-                        <span className="text-[10px] text-slate-550">
-                          {new Date(room.createdAt).toLocaleDateString()}
+                /* Explore Rooms Tab */
+                exploreLoading ? (
+                  <div className="h-48 border border-slate-900 rounded-2xl flex justify-center items-center">
+                    <div className="w-8 h-8 border-2 border-slate-800 border-t-indigo-500 rounded-full animate-spin" />
+                  </div>
+                ) : exploreRooms.length === 0 ? (
+                  <div className="h-48 border border-dashed border-slate-800 rounded-2xl flex flex-col justify-center items-center p-6 text-center">
+                    <p className="text-slate-400 text-sm mb-2">No rooms created yet.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {exploreRooms.map((room) => (
+                      <Link
+                        key={room.id}
+                        href={room.isMember ? `/rooms/${room.id}` : `/rooms/${room.id}/join`}
+                        className="group bg-slate-900/40 hover:bg-slate-900/70 border border-slate-850 hover:border-indigo-500/30 rounded-xl p-5 transition-all duration-200 hover:-translate-y-0.5 shadow-md flex flex-col justify-between h-36 relative"
+                      >
+                        {/* Member/Locked Status Badge */}
+                        <span className={`absolute top-4 right-4 text-[9px] px-2 py-0.5 font-bold uppercase tracking-wider rounded-full border ${
+                          room.isMember
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                            : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                        }`}>
+                          {room.isMember ? 'Joined' : 'Join'}
                         </span>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
+
+                        <div className="pr-12">
+                          <h3 className="font-bold text-slate-200 group-hover:text-indigo-400 transition-colors duration-150 truncate">
+                            # {room.name}
+                          </h3>
+                          <p className="text-slate-500 text-[10px] uppercase font-bold tracking-wider mt-1 font-mono">
+                            ID: {room.id}
+                          </p>
+                        </div>
+                        <div className="flex justify-between items-center text-xs text-slate-400">
+                          <span>{room.memberCount} members</span>
+                          <span className="text-[10px] text-slate-550">
+                            {new Date(room.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )
               )}
             </section>
 

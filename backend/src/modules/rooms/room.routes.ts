@@ -25,6 +25,7 @@ const roomCreationLimiter = rateLimit({
 router.post('/', requireAuth, roomCreationLimiter, validate(createRoomSchema), roomController.create);
 router.post('/:roomId/join', requireAuth, validate(joinRoomSchema), roomController.join);
 router.get('/mine', requireAuth, roomController.listMine);
+router.get('/', requireAuth, roomController.listAll);
 router.get('/:roomId', requireAuth, requireRoomMember, roomController.getDetail);
 
 export default router;

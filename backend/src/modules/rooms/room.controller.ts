@@ -58,6 +58,24 @@ export const listMine = async (
   }
 };
 
+export const listAll = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const userId = req.user!._id.toString();
+    const rooms = await roomService.getAllRooms(userId);
+
+    res.status(200).json({
+      status: 'success',
+      rooms,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getDetail = async (
   req: Request,
   res: Response,
