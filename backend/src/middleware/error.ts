@@ -37,6 +37,17 @@ export const errorHandler = (
     return;
   }
 
+  // Handle Mongoose / MongoDB invalid ObjectId format (CastError)
+  if (err.name === 'CastError') {
+    res.status(404).json({
+      error: {
+        code: 'NotFoundError',
+        message: 'Room not found',
+      },
+    });
+    return;
+  }
+
   // Handle Mongoose / MongoDB duplicate key errors (E11000)
   const errAny = err as any;
   if (errAny.code === 11000) {
