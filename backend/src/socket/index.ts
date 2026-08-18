@@ -90,7 +90,7 @@ export const initSocketServer = (httpServer: HttpServer): Server => {
     );
 
     // Register rooms and messages domain event handlers
-    registerRoomHandlers(customSocket);
+    registerRoomHandlers(customSocket, io);
     registerMessageHandlers(customSocket, io);
 
     socket.on('disconnect', () => {

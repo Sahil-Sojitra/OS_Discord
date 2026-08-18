@@ -1,14 +1,19 @@
-import { Socket } from 'socket.io';
+import { Socket, Server } from 'socket.io';
 import { z } from 'zod';
 import { Types } from 'mongoose';
 import { isRoomMember } from '../../modules/rooms/room.service.js';
 import { logger } from '../../utils/logger.js';
+import {
+  getRoomPresence,
+  isUserFirstSocketInRoom,
+  isUserLastSocketInRoom,
+} from '../presence.js';
 
 const roomIdSchema = z.string().refine((val) => Types.ObjectId.isValid(val), {
   message: 'Invalid room ID format',
 });
 
-export const registerRoomHandlers = (socket: Socket) => {
+export const registerRoomHandlers = (socket: Socket, io: Server) => {
   const userId = socket.data.userId;
   const username = socket.data.user.username;
 
@@ -28,7 +33,7 @@ export const registerRoomHandlers = (socket: Socket) => {
 
       const { roomId } = parsed.data;
 
-      // Authorize: check if user is a member of the room
+      // Authorize membership status
       const isMember = await isRoomMember(roomId, userId);
       if (!isMember) {
         ackFn({
@@ -42,14 +47,19 @@ export const registerRoomHandlers = (socket: Socket) => {
       await socket.join(roomId);
       logger.info({ userId, roomId, socketId: socket.id }, 'Socket joined room');
 
-      // Broadcast user:joined to everyone else in the room
-      socket.to(roomId).emit('user:joined', {
-        userId,
-        username,
-        roomId,
-      });
+      // Deduplicate: check if this is the user's first socket connected to this room
+      const isFirst = await isUserFirstSocketInRoom(io, roomId, userId);
+      if (isFirst) {
+        socket.to(roomId).emit('user:joined', {
+          userId,
+          username,
+          roomId,
+        });
+      }
 
-      ackFn({ status: 'ok' });
+      // Return current online presence list in acknowledgment response
+      const presence = await getRoomPresence(io, roomId);
+      ackFn({ status: 'ok', presence });
     } catch (error: any) {
       logger.error({ error, userId, socketId: socket.id }, 'Error during socket room:join');
       socket.emit('error', { code: 'InternalError', message: 'Failed to join room' });
@@ -76,12 +86,15 @@ export const registerRoomHandlers = (socket: Socket) => {
       await socket.leave(roomId);
       logger.info({ userId, roomId, socketId: socket.id }, 'Socket left room');
 
-      // Broadcast user:left to everyone else in the room
-      socket.to(roomId).emit('user:left', {
-        userId,
-        username,
-        roomId,
-      });
+      // Deduplicate: check if this was the user's last active socket in this room
+      const isLast = await isUserLastSocketInRoom(io, roomId, userId);
+      if (isLast) {
+        socket.to(roomId).emit('user:left', {
+          userId,
+          username,
+          roomId,
+        });
+      }
 
       ackFn({ status: 'ok' });
     } catch (error: any) {
@@ -91,21 +104,29 @@ export const registerRoomHandlers = (socket: Socket) => {
     }
   });
 
-  // Handle socket disconnect (in-flight disconnect broadcasts before room lists clear)
-  socket.on('disconnecting', () => {
+  // Handle socket disconnect (asynchronous leaves + last-socket broadcasts)
+  socket.on('disconnecting', async () => {
     try {
-      // socket.rooms is a Set containing all joined rooms (including the private socket.id room)
+      // Snapshot rooms before disconnect teardown clears socket.rooms
       const rooms = Array.from(socket.rooms).filter((roomId) => roomId !== socket.id);
+      
       for (const roomId of rooms) {
-        socket.to(roomId).emit('user:left', {
-          userId,
-          username,
-          roomId,
-        });
+        // Disconnect this socket from the room first, so it is omitted from fetchSockets check
+        await socket.leave(roomId);
+
+        // Deduplicate: check if any other sockets remain for this user in the room
+        const isLast = await isUserLastSocketInRoom(io, roomId, userId);
+        if (isLast) {
+          socket.to(roomId).emit('user:left', {
+            userId,
+            username,
+            roomId,
+          });
+        }
       }
-      logger.info({ userId, socketId: socket.id, rooms }, 'Socket disconnecting, left all rooms');
+      logger.info({ userId, socketId: socket.id, rooms }, 'Socket disconnected, presence updated');
     } catch (error) {
-      logger.error({ error, userId, socketId: socket.id }, 'Error broadcasting disconnect leaves');
+      logger.error({ error, userId, socketId: socket.id }, 'Error during socket disconnect presence');
     }
   });
 };

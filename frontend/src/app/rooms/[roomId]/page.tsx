@@ -30,7 +30,7 @@ export default function RoomDetailPage() {
   const [room, setRoom] = useState<RoomDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
+  const [presenceList, setPresenceList] = useState<Array<{ userId: string; username: string }>>([]);
 
   // Messaging States
   const [messages, setMessages] = useState<any[]>([]);
@@ -48,23 +48,22 @@ export default function RoomDetailPage() {
     socket.emit('room:join', { roomId }, (ack: any) => {
       if (ack && ack.status === 'ok') {
         console.log('[Socket] Joined room:', roomId);
-        setOnlineUserIds([user.id]);
+        setPresenceList(ack.presence || []);
       } else {
         console.error('[Socket] Join failed:', ack?.message);
       }
     });
 
     // Listen for room updates
-    socket.on('user:joined', (data: { userId: string; username: string; roomId: string }) => {
-      if (data.roomId === roomId) {
-        setOnlineUserIds((prev) => [...new Set([...prev, data.userId])]);
-      }
+    socket.on('user:joined', (data: { userId: string; username: string }) => {
+      setPresenceList((prev) => {
+        if (prev.some((u) => u.userId === data.userId)) return prev;
+        return [...prev, { userId: data.userId, username: data.username }];
+      });
     });
 
-    socket.on('user:left', (data: { userId: string; username: string; roomId: string }) => {
-      if (data.roomId === roomId) {
-        setOnlineUserIds((prev) => prev.filter((id) => id !== data.userId));
-      }
+    socket.on('user:left', (data: { userId: string; username: string }) => {
+      setPresenceList((prev) => prev.filter((u) => u.userId !== data.userId));
     });
 
     // Listen for live new messages from other users
@@ -275,7 +274,7 @@ export default function RoomDetailPage() {
           </h3>
           <ul className="space-y-2">
             {room.members.map((member) => {
-              const isOnline = onlineUserIds.includes(member.id);
+              const isOnline = presenceList.some((u) => u.userId === member.id);
               return (
                 <li
                   key={member.id}
